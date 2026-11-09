@@ -1,0 +1,49 @@
+/*
+ * CompassFont block styles.
+ *
+ * Font type and font size apply only to body text, section titles and activity
+ * names, so icons, headings and the rest of the layout keep their look. Text colour
+ * applies to body text only. Section and activity font colours apply to the words
+ * of section titles and activity names. Those words are wrapped in spans by
+ * compassfont.js, so icons and edit pencils keep their colours.
+ * Values come from CSS custom properties set by compassfont.js.
+ */
+
+.block_compassfont_controls label {
+    display: block;
+    font-size: 0.85rem;
+    margin-bottom: 0.2rem;
+}
+
+.block_compassfont_controls input[type="color"] {
+    height: 2.25rem;
+    padding: 0.15rem;
+    cursor: pointer;
+}
+
+/* Font type: body text, section titles and activity names only. */
+body.compassfont-family #page :is(p, li, td, th, dt, dd, blockquote,
+        .compassfont-title-text, .compassfont-activity-text) {
+    font-family: var(--compassfont-family) !important;
+}
+
+/* Font size: body text, section titles and activity names only. */
+body.compassfont-size #page :is(p, li, td, th, dt, dd, blockquote,
+        .compassfont-title-text, .compassfont-activity-text) {
+    font-size: var(--compassfont-size) !important;
+}
+
+/* Text colour: body text only (paragraphs, list items, table cells), not icons, buttons or headings. */
+body.compassfont-colour #page :is(p, li, td, th, dt, dd, blockquote) {
+    color: var(--compassfont-colour) !important;
+}
+
+/* Section font colour: the title words only, added by compassfont.js. */
+body.compassfont-section #page .compassfont-title-text {
+    color: var(--compassfont-section) !important;
+}
+
+/* Activity font colour: the activity name words only, added by compassfont.js. */
+body.compassfont-activity #page .compassfont-activity-text {
+    color: var(--compassfont-activity) !important;
+}
