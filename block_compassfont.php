@@ -69,23 +69,46 @@ class block_compassfont extends block_base {
     }
 
     /**
-     * Build one course colour picker with a checkbox to turn it on or off.
+     * The saved course settings, cleaned: only values on the allow-lists are kept.
      *
-     * @param string $name 'section' or 'activity'.
+     * @param stdClass|null $config Block instance configuration.
+     * @return array family (key or null), size (CSS value or null), colour, section and activity (hex or null).
+     */
+    public static function clean_settings(?stdClass $config): array {
+        $config = $config ?? new stdClass();
+        $hex = '/^#[0-9a-f]{6}$/i';
+        $families = self::font_families();
+        $out = [];
+        $family = $config->family ?? null;
+        $out['family'] = (is_string($family) && isset($families[$family]) && $families[$family]['css'] !== null)
+            ? $family : null;
+        $size = $config->size ?? null;
+        $out['size'] = (is_string($size) && in_array($size, self::font_sizes(), true)) ? $size : null;
+        foreach (['colour', 'section', 'activity'] as $name) {
+            $value = $config->$name ?? null;
+            $out[$name] = (is_string($value) && preg_match($hex, $value)) ? strtolower($value) : null;
+        }
+        return $out;
+    }
+
+    /**
+     * Build one colour picker with a checkbox to turn it on or off.
+     *
+     * @param string $name 'colour', 'section' or 'activity'.
      * @param string $label Visible label.
      * @param string|null $current Saved hex colour, or null if not set.
      * @return string
      */
-    private static function course_colour_field(string $name, string $label, ?string $current): string {
+    private static function colour_field(string $name, string $label, ?string $current): string {
         $on = !empty($current);
         $id = 'compassfont-' . $name;
-        $value = $on ? $current : self::DEFAULT_COURSE_COLOUR;
+        $default = ($name === 'colour') ? self::DEFAULT_TEXT_COLOUR : self::DEFAULT_COURSE_COLOUR;
 
         $pickerattrs = [
             'type' => 'color',
             'id' => $id,
             'name' => $name,
-            'value' => $value,
+            'value' => $on ? $current : $default,
             'class' => 'form-control form-control-color w-100 mb-1',
         ];
         $html = html_writer::tag('label', $label, ['for' => $id]);
@@ -93,6 +116,7 @@ class block_compassfont extends block_base {
 
         $checkbox = [
             'type' => 'checkbox',
+            'id' => $id . '-use',
             'name' => 'use_' . $name,
             'value' => 1,
             'aria-label' => get_string('usecolour', 'block_compassfont') . ' (' . $label . ')',
@@ -101,7 +125,7 @@ class block_compassfont extends block_base {
             $checkbox['checked'] = 'checked';
         }
         $tick = html_writer::empty_tag('input', $checkbox) . ' ' . get_string('usecolour', 'block_compassfont');
-        $html .= html_writer::tag('label', $tick, ['class' => 'mb-2 d-block']);
+        $html .= html_writer::tag('label', $tick, ['class' => 'mb-2 d-block', 'for' => $id . '-use']);
 
         return $html;
     }
@@ -132,7 +156,7 @@ class block_compassfont extends block_base {
     }
 
     /**
-     * Course colours are set from the block body, not the settings dialog.
+     * Settings are changed from the block body, not the settings dialog.
      *
      * @return bool
      */
@@ -152,109 +176,102 @@ class block_compassfont extends block_base {
 
         $this->content = new stdClass();
         $this->content->footer = '';
+        $this->content->text = '';
 
-        // Only admins, managers and course creators see the course colour controls.
-        $cancoursecolours = has_capability('block/compassfont:sectioncolour', $this->context);
-
-        // Font type options.
-        $familyopts = [];
-        $fontcss = [];
-        foreach (self::font_families() as $key => $font) {
-            $familyopts[$key] = $font['label'];
-            $fontcss[$key] = $font['css'];
+        $options = $this->page_options();
+        if ($options['canEdit']) {
+            $this->content->text = $this->controls();
+        }
+        if ($options['canEdit'] || self::has_settings($options)) {
+            $this->page->requires->js_call_amd('block_compassfont/compassfont', 'init', [$options]);
         }
 
-        // Font size options.
+        return $this->content;
+    }
+
+    /**
+     * The form with the course settings, for people with the permission.
+     *
+     * @return string
+     */
+    private function controls(): string {
+        $saved = self::clean_settings($this->config ?? null);
+
+        $familyopts = [];
+        foreach (self::font_families() as $key => $font) {
+            $familyopts[$key] = $font['label'];
+        }
         $sizeopts = ['default' => get_string('default', 'block_compassfont')];
         foreach (self::font_sizes() as $size) {
             $sizeopts[$size] = $size;
         }
 
-        // Learners' own controls.
+        $action = (new moodle_url('/blocks/compassfont/save.php'))->out(false);
         $html = html_writer::start_div('block_compassfont_controls');
+        $html .= html_writer::tag('p', get_string('appliestoeveryone', 'block_compassfont'), ['class' => 'small text-muted mb-2']);
+        $html .= html_writer::start_tag('form', ['method' => 'post', 'action' => $action, 'id' => 'compassfont-form']);
+        $html .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'instanceid', 'value' => $this->instance->id]);
+        $html .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
 
         $html .= html_writer::tag('label', get_string('fonttype', 'block_compassfont'), ['for' => 'compassfont-family']);
-        $familyattrs = ['id' => 'compassfont-family', 'class' => 'custom-select custom-select-sm mb-2'];
-        $html .= html_writer::select($familyopts, 'compassfont-family', 'default', false, $familyattrs);
+        $html .= html_writer::select($familyopts, 'family', $saved['family'] ?? 'default', false,
+            ['id' => 'compassfont-family', 'class' => 'custom-select custom-select-sm mb-2']);
 
         $html .= html_writer::tag('label', get_string('fontsize', 'block_compassfont'), ['for' => 'compassfont-size']);
-        $sizeattrs = ['id' => 'compassfont-size', 'class' => 'custom-select custom-select-sm mb-2'];
-        $html .= html_writer::select($sizeopts, 'compassfont-size', 'default', false, $sizeattrs);
+        $html .= html_writer::select($sizeopts, 'size', $saved['size'] ?? 'default', false,
+            ['id' => 'compassfont-size', 'class' => 'custom-select custom-select-sm mb-2']);
 
-        $html .= html_writer::tag('label', get_string('textcolour', 'block_compassfont'), ['for' => 'compassfont-colour']);
-        $colourattrs = [
-            'type' => 'color',
-            'id' => 'compassfont-colour',
-            'name' => 'compassfont-colour',
-            'value' => self::DEFAULT_TEXT_COLOUR,
-            'class' => 'form-control form-control-color w-100 mb-1',
-            'title' => get_string('textcolour', 'block_compassfont'),
-        ];
-        $html .= html_writer::empty_tag('input', $colourattrs);
+        $html .= self::colour_field('colour', get_string('textcolour', 'block_compassfont'), $saved['colour']);
+        $html .= self::colour_field('section', get_string('sectioncolour', 'block_compassfont'), $saved['section']);
+        $html .= self::colour_field('activity', get_string('activitycolour', 'block_compassfont'), $saved['activity']);
 
-        $usecolourlabel = get_string('usecolour', 'block_compassfont') . ' (' .
-            get_string('textcolour', 'block_compassfont') . ')';
-        $usecolour = [
-            'type' => 'checkbox',
-            'id' => 'compassfont-use-colour',
-            'value' => 1,
-            'aria-label' => $usecolourlabel,
-        ];
-        $tick = html_writer::empty_tag('input', $usecolour) . ' ' . get_string('usecolour', 'block_compassfont');
-        $html .= html_writer::tag('label', $tick, ['class' => 'mb-2 d-block', 'for' => 'compassfont-use-colour']);
-
-        // Course colour controls: admins, managers and course creators only.
-        if ($cancoursecolours) {
-            $saved = $this->config ?? new stdClass();
-            $savedsection = $saved->section ?? null;
-            $savedactivity = $saved->activity ?? null;
-
-            $action = (new moodle_url('/blocks/compassfont/save.php'))->out(false);
-            $formattrs = ['method' => 'post', 'action' => $action, 'class' => 'block_compassfont_course_colours'];
-            $html .= html_writer::start_tag('form', $formattrs);
-
-            $instanceattrs = ['type' => 'hidden', 'name' => 'instanceid', 'value' => $this->instance->id];
-            $html .= html_writer::empty_tag('input', $instanceattrs);
-            $sesskeyattrs = ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()];
-            $html .= html_writer::empty_tag('input', $sesskeyattrs);
-
-            $sectionlabel = get_string('sectioncolour', 'block_compassfont');
-            $html .= self::course_colour_field('section', $sectionlabel, $savedsection);
-            $activitylabel = get_string('activitycolour', 'block_compassfont');
-            $html .= self::course_colour_field('activity', $activitylabel, $savedactivity);
-
-            $submitattrs = [
-                'type' => 'submit',
-                'value' => get_string('savecolours', 'block_compassfont'),
-                'class' => 'btn btn-primary btn-sm btn-block',
-            ];
-            $html .= html_writer::empty_tag('input', $submitattrs);
-            $html .= html_writer::end_tag('form');
-        }
-
-        // Reset sits at the bottom and clears the learner's own font settings.
-        $resetattrs = ['type' => 'button', 'id' => 'compassfont-reset', 'class' => 'btn btn-secondary btn-sm btn-block mt-2'];
-        $html .= html_writer::tag('button', get_string('reset', 'block_compassfont'), $resetattrs);
-
+        $html .= html_writer::empty_tag('input', [
+            'type' => 'submit',
+            'value' => get_string('savesettings', 'block_compassfont'),
+            'class' => 'btn btn-primary btn-sm btn-block',
+        ]);
+        $html .= html_writer::tag('button', get_string('reset', 'block_compassfont'),
+            ['type' => 'button', 'id' => 'compassfont-reset', 'class' => 'btn btn-secondary btn-sm btn-block mt-2']);
+        $html .= html_writer::end_tag('form');
         $html .= html_writer::end_div();
 
-        $this->content->text = $cancoursecolours ? $html : '';
+        return $html;
+    }
 
-        // The course's section and activity colours, saved on this block instance.
-        $section = $this->config->section ?? null;
-        $activity = $this->config->activity ?? null;
+    /**
+     * Whether any course setting is saved, so the script has something to apply.
+     *
+     * @param array $options From page_options().
+     * @return bool
+     */
+    public static function has_settings(array $options): bool {
+        return (bool) ($options['family'] || $options['size'] || $options['colour'] ||
+            $options['section'] || $options['activity']);
+    }
 
-        $options = [
-            'storageKey' => 'block_compassfont',
+    /**
+     * Settings passed to compassfont.js, on the course page and on the course's other pages.
+     *
+     * @return array
+     */
+    public function page_options(): array {
+        $saved = self::clean_settings($this->config ?? null);
+        $fonts = self::font_families();
+        $fontcss = [];
+        foreach ($fonts as $key => $font) {
+            $fontcss[$key] = $font['css'];
+        }
+
+        return [
             'fonts' => $fontcss,
             'sizes' => self::font_sizes(),
             'textDefault' => self::DEFAULT_TEXT_COLOUR,
-            'section' => $section,
-            'activity' => $activity,
-            'canEdit' => $cancoursecolours,
+            'family' => $saved['family'] ? $fonts[$saved['family']]['css'] : null,
+            'size' => $saved['size'],
+            'colour' => $saved['colour'],
+            'section' => $saved['section'],
+            'activity' => $saved['activity'],
+            'canEdit' => has_capability('block/compassfont:sectioncolour', $this->context),
         ];
-        $this->page->requires->js_call_amd('block_compassfont/compassfont', 'init', [$options]);
-
-        return $this->content;
     }
 }

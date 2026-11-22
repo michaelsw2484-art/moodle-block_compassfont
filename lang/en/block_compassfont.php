@@ -24,22 +24,21 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$string['pluginname'] = 'CompassFont';
-$string['fonttype'] = 'Font type';
-$string['fontsize'] = 'Font size';
-$string['textcolour'] = 'Text colour';
-$string['sectioncolour'] = 'Section font colour';
 $string['activitycolour'] = 'Activity font colour';
-$string['usecolour'] = 'Use this colour';
-$string['savecolours'] = 'Save course colours';
-$string['compassfont:sectioncolour'] = 'Use the CompassFont controls and set course colours '
-    . '(admins, managers and course creators)';
-$string['reset'] = 'Reset';
+$string['appliestoeveryone'] = 'These settings apply to everyone on this course, on the course page and inside activities.';
+$string['compassfont:addinstance'] = 'Add a new CompassFont block';
+$string['compassfont:sectioncolour'] = 'Change the CompassFont course settings: font type, font size and colours (admins, managers, course creators and editing teachers)';
 $string['default'] = 'Default';
-$string['family_sans'] = 'Sans-serif (Arial)';
-$string['family_serif'] = 'Serif (Georgia)';
 $string['family_mono'] = 'Monospace';
 $string['family_readable'] = 'Readable (Verdana)';
-$string['compassfont:addinstance'] = 'Add a new CompassFont block';
-$string['privacy:metadata'] = 'The CompassFont block stores the learner\'s font preferences in their own browser '
-    . 'only. No personal data is stored on the server.';
+$string['family_sans'] = 'Sans-serif (Arial)';
+$string['family_serif'] = 'Serif (Georgia)';
+$string['fontsize'] = 'Font size';
+$string['fonttype'] = 'Font type';
+$string['pluginname'] = 'CompassFont';
+$string['privacy:metadata'] = 'The CompassFont block stores no personal data. Its font and colour settings belong to the course.';
+$string['reset'] = 'Reset';
+$string['savesettings'] = 'Save course settings';
+$string['sectioncolour'] = 'Section font colour';
+$string['textcolour'] = 'Text colour';
+$string['usecolour'] = 'Use this colour';

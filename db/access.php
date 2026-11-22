@@ -18,7 +18,7 @@
  * Capabilities for block_compassfont.
  *
  * - addinstance: admins, managers and editing teachers can add the block to course pages.
- * - sectioncolour: admins, managers and course creators can see the block's controls and
+ * - sectioncolour: admins, managers, course creators and editing teachers can see the block's controls and
  *   set the course section and activity font colours. Learners never see the block's controls.
  *
  * The block is not available on the Dashboard, so there is no myaddinstance capability.
@@ -48,6 +48,7 @@ $capabilities = [
         'captype' => 'write',
         'contextlevel' => CONTEXT_BLOCK,
         'archetypes' => [
+            'editingteacher' => CAP_ALLOW,
             'coursecreator' => CAP_ALLOW,
             'manager' => CAP_ALLOW,
         ],

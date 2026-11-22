@@ -43,18 +43,27 @@ $courseid = $coursecontext ? $coursecontext->instanceid : SITEID;
 require_login($courseid);
 require_capability('block/compassfont:sectioncolour', $blockcontext);
 
-// Keep a colour only if its checkbox is ticked and the value is a valid hex colour.
-$hex = '/^#[0-9a-f]{6}$/i';
-$section = optional_param('section', '', PARAM_TEXT);
-$activity = optional_param('activity', '', PARAM_TEXT);
-$usesection = optional_param('use_section', 0, PARAM_INT);
-$useactivity = optional_param('use_activity', 0, PARAM_INT);
+// Read the form. Colours are kept only while their "Use this colour" tick is on.
+$submitted = (object) [
+    'family' => optional_param('family', '', PARAM_ALPHA),
+    'size' => optional_param('size', '', PARAM_ALPHANUMEXT),
+];
+foreach (['colour', 'section', 'activity'] as $name) {
+    $submitted->$name = optional_param('use_' . $name, 0, PARAM_BOOL) ? optional_param($name, '', PARAM_TEXT) : null;
+}
 
+// Keep only values on the allow-lists (font types, font sizes, hex colours).
 $config = $block->config ?? new stdClass();
-$config->section = ($usesection && preg_match($hex, $section)) ? strtolower($section) : null;
-$config->activity = ($useactivity && preg_match($hex, $activity)) ? strtolower($activity) : null;
+foreach (block_compassfont::clean_settings($submitted) as $name => $value) {
+    $config->$name = $value;
+}
 
 $block->config = $config;
 $block->instance_config_commit();
 
-redirect(new moodle_url('/course/view.php', ['id' => $courseid]), get_string('changessaved'));
+redirect(
+    new moodle_url('/course/view.php', ['id' => $courseid]),
+    get_string('changessaved'),
+    null,
+    \core\output\notification::NOTIFY_SUCCESS
+);

@@ -14,19 +14,22 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * CompassFont: font type, font size and text colour for learners, plus the
- * course section and activity font colours.
+ * CompassFont: course-wide font type, font size, text colour, and section and activity
+ * font colours, chosen by people with the permission and seen by everyone on the course.
  *
- * Learner preferences are kept in localStorage (per browser). Font size is applied
- * to the root element so rem-based text scales; the other settings are applied
- * using CSS custom properties defined in styles.css.
- *
- * Course colours come from the block instance (saved by an admin). Admins also get
- * a live preview: changing a course colour picker updates the page straight away,
- * and nothing is stored until they press "Save course colours".
+ * The settings are saved on the block instance and passed in from PHP. Font size and the
+ * other settings are applied using CSS custom properties defined in styles.css. People who
+ * can change the settings get a live preview: changing a control updates the page straight
+ * away, and nothing is stored until they press "Save course settings".
  *
  * Section titles and activity names have their words wrapped in a span so only
- * the text is coloured, not the icons or edit pencils inside them.
+ * the text is coloured, not the icons or edit pencils inside them. This covers the
+ * course page, the course index, section pages and the title of each activity page.
+ *
+ * On activity pages and other course pages, where the block is not shown, the same
+ * settings are applied by applyOutside(). Content that Moodle shows in a frame from
+ * the same site (for example H5P or SCORM) is styled too. Frames from other sites
+ * (YouTube, Vimeo, external tools) cannot be changed by the browser.
  *
  * @module     block_compassfont/compassfont
  * @copyright  2026 Michael Williams
@@ -39,43 +42,31 @@ define([], function() {
     var HEX = /^#[0-9a-f]{6}$/i;
     var TITLE_CLASS = 'compassfont-title-text';
     var ACTIVITY_CLASS = 'compassfont-activity-text';
-    var SKIP = '.quickeditlink, .icon, .accesshide, svg, img, i';
+    var SKIP = '.quickeditlink, .icon, .accesshide, .badge, svg, img, i';
+    var FRAME_STYLE_ID = 'block_compassfont-frame-style';
+
+    // Body text inside frames. Keep in step with the TEXT list in styles.css.
+    var FRAME_TEXT = 'p, li, td, th, dt, dd, blockquote, label, figcaption, caption, .no-overflow';
+
+    // Current values: personal settings (family, size, colour) and course colours (section, activity).
+    var active = {family: null, size: null, colour: null, section: null, activity: null};
+
+    // Documents being styled: the page itself and any same-site frames found in it.
+    var docs = [];
+    var seenFrames = typeof WeakSet === 'function' ? new WeakSet() : null;
+    var observer = null;
+    var pending = null;
 
     var hasKey = function(obj, key) {
         return Object.prototype.hasOwnProperty.call(obj, key);
     };
 
-    var loadPrefs = function() {
-        try {
-            var raw = window.localStorage.getItem(config.storageKey);
-            var prefs = raw ? JSON.parse(raw) : {};
-            return (prefs && typeof prefs === 'object') ? prefs : {};
-        } catch (e) {
-            return {};
-        }
+    var forEach = function(list, fn) {
+        Array.prototype.forEach.call(list, fn);
     };
 
-    var savePrefs = function(prefs) {
-        try {
-            window.localStorage.setItem(config.storageKey, JSON.stringify(prefs));
-        } catch (e) {
-            // Storage unavailable (private mode, blocked): settings still apply to this page.
-        }
-    };
-
-    // Keep only values that are on the allow-list, so stored data cannot inject arbitrary CSS.
-    var sanitise = function(prefs) {
-        var out = {};
-        if (prefs.family && hasKey(config.fonts, prefs.family) && config.fonts[prefs.family]) {
-            out.family = prefs.family;
-        }
-        if (prefs.size && config.sizes.indexOf(prefs.size) !== -1) {
-            out.size = prefs.size;
-        }
-        if (typeof prefs.colour === 'string' && HEX.test(prefs.colour)) {
-            out.colour = prefs.colour.toLowerCase();
-        }
-        return out;
+    var cleanHex = function(value) {
+        return (typeof value === 'string' && HEX.test(value)) ? value.toLowerCase() : null;
     };
 
     // Wrap the words of an element in a span, leaving icons, edit links and other elements alone.
@@ -85,7 +76,7 @@ define([], function() {
         }
         Array.prototype.slice.call(node.childNodes).forEach(function(child) {
             if (child.nodeType === 3 && child.textContent.trim() !== '') {
-                var span = document.createElement('span');
+                var span = child.ownerDocument.createElement('span');
                 span.className = className;
                 node.insertBefore(span, child);
                 span.appendChild(child);
@@ -95,14 +86,31 @@ define([], function() {
         });
     };
 
-    // Wrap titles and activity names when the course has colours, or when an admin may preview them.
+    var wrapAll = function(selector, className) {
+        forEach(document.querySelectorAll(selector), function(el) {
+            wrapText(el, className);
+        });
+    };
+
+    // Wrap section titles and activity names wherever they appear on this page.
     var wrapTargets = function() {
-        Array.prototype.forEach.call(document.querySelectorAll('#page .sectionname'), function(el) {
-            wrapText(el, TITLE_CLASS);
-        });
-        Array.prototype.forEach.call(document.querySelectorAll('#page .activityname'), function(el) {
-            wrapText(el, ACTIVITY_CLASS);
-        });
+        var pageId = document.body.id || '';
+
+        // Course page and section page content.
+        wrapAll('#page .sectionname', TITLE_CLASS);
+        wrapAll('#page .activityname', ACTIVITY_CLASS);
+
+        // Course index (the left-hand drawer), on every page of the course.
+        wrapAll('.courseindex .courseindex-section-title .courseindex-link', TITLE_CLASS);
+        wrapAll('.courseindex .courseindex-link[data-for="cm_name"], .courseindex .courseindex-cmitem .courseindex-link',
+            ACTIVITY_CLASS);
+
+        // The page title: the activity name on activity pages, the section name on section pages.
+        if (pageId.indexOf('page-mod-') === 0) {
+            wrapAll('#page-header .page-header-headings h1, #page-header .page-header-headings h2', ACTIVITY_CLASS);
+        } else if (pageId.indexOf('page-course-view-section') === 0 || pageId.indexOf('page-course-section') === 0) {
+            wrapAll('#page-header .page-header-headings h1, #page-header .page-header-headings h2', TITLE_CLASS);
+        }
     };
 
     // Set or clear one CSS custom property and the class that switches its rule on.
@@ -116,144 +124,207 @@ define([], function() {
         }
     };
 
-    var apply = function(prefs) {
-        var root = document.documentElement;
-        var body = document.body;
-
-        setOne(body, 'compassfont-size', '--compassfont-size', prefs.size || null);
-        setOne(body, 'compassfont-family', '--compassfont-family',
-            prefs.family ? config.fonts[prefs.family] : null);
-        setOne(body, 'compassfont-colour', '--compassfont-colour', prefs.colour || null);
-
-        // Course colours: the saved values from the block instance.
-        var section = (config.section && HEX.test(config.section)) ? config.section.toLowerCase() : null;
-        var activity = (config.activity && HEX.test(config.activity)) ? config.activity.toLowerCase() : null;
-        setOne(body, 'compassfont-section', '--compassfont-section', section);
-        setOne(body, 'compassfont-activity', '--compassfont-activity', activity);
-    };
-
-    // Admin preview: show the course colours currently chosen in the form, without saving.
-    var previewCourseColours = function() {
-        var body = document.body;
-        var sectionPicker = document.getElementById('compassfont-section');
-        var activityPicker = document.getElementById('compassfont-activity');
-        var useSection = document.querySelector('input[name="use_section"]');
-        var useActivity = document.querySelector('input[name="use_activity"]');
-
-        setOne(body, 'compassfont-section', '--compassfont-section',
-            (sectionPicker && useSection && useSection.checked) ? sectionPicker.value : null);
-        setOne(body, 'compassfont-activity', '--compassfont-activity',
-            (activityPicker && useActivity && useActivity.checked) ? activityPicker.value : null);
-    };
-
-    // Set one learner preference. 'default' (or empty) clears it.
-    var update = function(key, value) {
-        var prefs = sanitise(loadPrefs());
-        if (value && value !== 'default') {
-            prefs[key] = value;
-        } else {
-            delete prefs[key];
+    // Apply the current values to one document.
+    var paint = function(doc) {
+        var body = doc.body;
+        if (!body) {
+            return;
         }
-        prefs = sanitise(prefs);
-        savePrefs(prefs);
-        apply(prefs);
+        setOne(body, 'compassfont-size', '--compassfont-size', active.size);
+        setOne(body, 'compassfont-family', '--compassfont-family', active.family);
+        setOne(body, 'compassfont-colour', '--compassfont-colour', active.colour);
+        setOne(body, 'compassfont-section', '--compassfont-section', active.section);
+        setOne(body, 'compassfont-activity', '--compassfont-activity', active.activity);
+    };
+
+    // Apply the current values to the page and every frame being styled.
+    var paintAll = function() {
+        docs = docs.filter(function(doc) {
+            return doc.defaultView && doc.body;
+        });
+        docs.forEach(paint);
+    };
+
+    // The rules used inside frames, which do not load the block's styles.css.
+    var frameCss = function() {
+        var text = ':is(' + FRAME_TEXT + ')';
+        return 'body.compassfont-family ' + text + ' {font-family: var(--compassfont-family) !important;} ' +
+            'body.compassfont-size ' + text + ' {font-size: var(--compassfont-size) !important;} ' +
+            'body.compassfont-colour ' + text + ' {color: var(--compassfont-colour) !important;} ';
+    };
+
+    // Start styling a frame's document, if the browser lets us (same site only).
+    var adoptFrame = function(frame) {
+        var doc = null;
+        try {
+            doc = frame.contentDocument;
+        } catch (e) {
+            doc = null;
+        }
+        if (!doc || !doc.body || docs.indexOf(doc) !== -1) {
+            return;
+        }
+        if (!doc.getElementById(FRAME_STYLE_ID)) {
+            var style = doc.createElement('style');
+            style.id = FRAME_STYLE_ID;
+            style.textContent = frameCss();
+            (doc.head || doc.documentElement).appendChild(style);
+        }
+        docs.push(doc);
+        paint(doc);
+        // eslint-disable-next-line no-use-before-define
+        watchDocument(doc);
+    };
+
+    var hookFrame = function(frame) {
+        if (seenFrames) {
+            if (seenFrames.has(frame)) {
+                return;
+            }
+            seenFrames.add(frame);
+        } else if (frame.getAttribute('data-compassfont')) {
+            return;
+        }
+        frame.setAttribute('data-compassfont', '1');
+        // A frame gets a new document each time it loads, so adopt it again on every load.
+        frame.addEventListener('load', function() {
+            adoptFrame(frame);
+        });
+        adoptFrame(frame);
+    };
+
+    // Watch a document for frames added later (H5P, for example, builds its frame after loading).
+    var watchDocument = function(doc) {
+        forEach(doc.querySelectorAll('iframe'), hookFrame);
+        if (typeof MutationObserver !== 'function' || !doc.body) {
+            return;
+        }
+        new MutationObserver(function() {
+            forEach(doc.querySelectorAll('iframe'), hookFrame);
+        }).observe(doc.body, {childList: true, subtree: true});
+    };
+
+    // The course index and other parts of the page are redrawn by Moodle after loading,
+    // so wrap new titles and names, and look for new frames, whenever the page changes.
+    var watchPage = function() {
+        if (observer || typeof MutationObserver !== 'function') {
+            return;
+        }
+        observer = new MutationObserver(function() {
+            if (pending) {
+                return;
+            }
+            pending = window.setTimeout(function() {
+                pending = null;
+                observer.disconnect();
+                wrapTargets();
+                forEach(document.querySelectorAll('iframe'), hookFrame);
+                observer.observe(document.body, {childList: true, subtree: true, characterData: true});
+            }, 100);
+        });
+        observer.observe(document.body, {childList: true, subtree: true, characterData: true});
+    };
+
+    // Set up the page: wrap names, start styling frames and watch for changes.
+    var start = function() {
+        docs = [document];
+        wrapTargets();
+        forEach(document.querySelectorAll('iframe'), hookFrame);
+        watchPage();
+    };
+
+    // Use a set of settings: family is a CSS font stack, size a CSS value, the rest hex colours.
+    var setActive = function(values) {
+        active.family = (typeof values.family === 'string' && values.family) ? values.family : null;
+        active.size = (values.size && config.sizes.indexOf(values.size) !== -1) ? values.size : null;
+        active.colour = cleanHex(values.colour);
+        active.section = cleanHex(values.section);
+        active.activity = cleanHex(values.activity);
+        paintAll();
+    };
+
+    var byId = function(id) {
+        return document.getElementById(id);
+    };
+
+    // A colour from the form, only while its "Use this colour" tick is on.
+    var formColour = function(name) {
+        var picker = byId('compassfont-' + name);
+        var tick = byId('compassfont-' + name + '-use');
+        return (picker && tick && tick.checked) ? picker.value : null;
+    };
+
+    // Live preview of the form, without saving.
+    var preview = function() {
+        var family = byId('compassfont-family');
+        var size = byId('compassfont-size');
+        var key = family ? family.value : 'default';
+        setActive({
+            family: (hasKey(config.fonts, key) && config.fonts[key]) ? config.fonts[key] : null,
+            size: size ? size.value : null,
+            colour: formColour('colour'),
+            section: formColour('section'),
+            activity: formColour('activity')
+        });
+    };
+
+    // Reset puts the form back to the site defaults and previews that. Save to store it.
+    var resetForm = function() {
+        ['compassfont-family', 'compassfont-size'].forEach(function(id) {
+            var select = byId(id);
+            if (select) {
+                select.value = 'default';
+            }
+        });
+        ['colour', 'section', 'activity'].forEach(function(name) {
+            var picker = byId('compassfont-' + name);
+            var tick = byId('compassfont-' + name + '-use');
+            if (picker) {
+                picker.value = config.textDefault || '#000000';
+            }
+            if (tick) {
+                tick.checked = false;
+            }
+        });
+        preview();
     };
 
     return {
         /**
-         * @param {Object} options storageKey, fonts (key => css|null), sizes (array),
-         *                         textDefault (hex), section and activity (hex or null, saved on the block),
-         *                         canEdit (bool, admins and managers)
+         * Apply the course settings on activity pages and other course pages, where the block
+         * itself is not shown. Everyone on the course gets them.
+         *
+         * @param {Object} options fonts (key => css|null), sizes (array), family (css or null),
+         *                         size (css or null), colour, section and activity (hex or null)
+         */
+        applyOutside: function(options) {
+            config = options;
+            start();
+            setActive(config);
+        },
+
+        /**
+         * Apply the course settings on the course page, and set up the live preview for people
+         * who can change them.
+         *
+         * @param {Object} options as for applyOutside, plus canEdit (bool) and textDefault (hex)
          */
         init: function(options) {
             config = options;
+            start();
+            setActive(config);
 
-            wrapTargets();
-
-            var prefs = config.canEdit ? sanitise(loadPrefs()) : {};
-            apply(prefs);
-
-            var family = document.getElementById('compassfont-family');
-            var size = document.getElementById('compassfont-size');
-            var colour = document.getElementById('compassfont-colour');
-
-            if (family) {
-                family.value = prefs.family || 'default';
-                family.addEventListener('change', function() {
-                    update('family', family.value);
-                });
+            if (!config.canEdit) {
+                return;
             }
-            if (size) {
-                size.value = prefs.size || 'default';
-                size.addEventListener('change', function() {
-                    update('size', size.value);
-                });
+            var form = byId('compassfont-form');
+            if (form) {
+                form.addEventListener('input', preview);
+                form.addEventListener('change', preview);
             }
-            // Text colour only applies while its "Use this colour" tick is on.
-            var useColour = document.getElementById('compassfont-use-colour');
-            var applyTextColour = function() {
-                update('colour', (colour && useColour && useColour.checked) ? colour.value : null);
-            };
-            if (colour) {
-                colour.value = prefs.colour || config.textDefault;
-                colour.addEventListener('input', applyTextColour);
-            }
-            if (useColour) {
-                useColour.checked = !!prefs.colour;
-                useColour.addEventListener('change', applyTextColour);
-            }
-
-            // Admins: preview the course colour pickers live. Nothing is saved until the form is submitted.
-            if (config.canEdit) {
-                previewCourseColours();
-                var previewIds = ['compassfont-section', 'compassfont-activity'];
-                previewIds.forEach(function(id) {
-                    var picker = document.getElementById(id);
-                    if (picker) {
-                        picker.addEventListener('input', previewCourseColours);
-                    }
-                });
-                var checkboxes = document.querySelectorAll(
-                    'input[name="use_section"], input[name="use_activity"]');
-                Array.prototype.forEach.call(checkboxes, function(box) {
-                    box.addEventListener('change', previewCourseColours);
-                });
-            }
-
-            var reset = document.getElementById('compassfont-reset');
+            var reset = byId('compassfont-reset');
             if (reset) {
-                reset.addEventListener('click', function() {
-                    savePrefs({});
-                    apply({});
-                    if (family) {
-                        family.value = 'default';
-                    }
-                    if (size) {
-                        size.value = 'default';
-                    }
-                    if (colour) {
-                        colour.value = config.textDefault;
-                    }
-                    if (useColour) {
-                        useColour.checked = false;
-                    }
-                    // Admins: clear the course colours in the form and on the page. Save to store them.
-                    if (config.canEdit) {
-                        ['use_section', 'use_activity'].forEach(function(name) {
-                            var box = document.querySelector('input[name="' + name + '"]');
-                            if (box) {
-                                box.checked = false;
-                            }
-                        });
-                        ['compassfont-section', 'compassfont-activity'].forEach(function(id) {
-                            var picker = document.getElementById(id);
-                            if (picker) {
-                                picker.value = '#000000';
-                            }
-                        });
-                        previewCourseColours();
-                    }
-                });
+                reset.addEventListener('click', resetForm);
             }
         }
     };
